@@ -1,10 +1,13 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using netart.Data;
+using netart.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Добавляем сервисы для Swagger
-builder.Services.AddSwaggerGen(); // Используем AddSwaggerGen для настройки Swagger
+builder.Services.AddSwaggerGen();
 
 // Настроим DbContext с SQLite
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -12,16 +15,46 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddControllers();
 
+builder.Services.AddSingleton<AppSettingService>();
+builder.Services.AddScoped<TokenService>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+        var secretKey = builder.Configuration["JwtSettings:SecretKey"]
+                        ?? throw new InvalidOperationException("JWT secret key is missing in configuration.");
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+        options.RequireHttpsMetadata = false;  // Отключение для использования в разработке
+        options.SaveToken = true;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidIssuer = jwtSettings["Issuer"],
+            ValidAudience = jwtSettings["Audience"],
+            IssuerSigningKey = key
+        };
+    });
+
+builder.Services.AddAuthorization();
+builder.Services.AddScoped<TokenService>();
+
+
 var app = builder.Build();
 
-// Конфигурация HTTP запросов
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger(); // Генерация Swagger спецификации
-    app.UseSwaggerUI(); // Интерфейс для взаимодействия с Swagger
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseHttpsRedirection();
-app.MapControllers(); // Убедитесь, что добавили маршрут для контроллеров
+app.MapControllers();
 
 app.Run();
